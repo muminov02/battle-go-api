@@ -19,11 +19,31 @@ smoke_test.go  end-to-end smoke test (build tag: smoke)
 ```
 
 ## Run
+
 ```bash
 cp .env.example .env      # fill in DSNs, ABLY_KEY, JWT_PUBLIC_KEY
-go run ./cmd/api          # HTTP API
-go run ./cmd/worker       # daemons
-go test ./...             # unit tests
+```
+
+One-command helpers (Makefile):
+
+| Command | Does |
+|---|---|
+| `make go/up` | build + run api & worker (systemd if installed, else background) |
+| `make go/down` | stop them |
+| `make go/logs` | last 100 log lines (journald or `logs/*.log`) |
+| `make go-docker/up` | build + start everything in Docker (postgres + api + worker) |
+| `make go-docker/down` | stop the Docker stack |
+| `make go-docker/logs` | last 100 Docker log lines |
+| `make build` / `make test` | build binaries / run unit tests |
+
+**Docker note:** `docker compose` brings up its own PostgreSQL; MySQL is your existing DB —
+in `.env` set `MYSQL_DSN` host to `host.docker.internal` (mapped in compose) or the real host.
+
+Manual:
+```bash
+go run ./cmd/api      # HTTP API
+go run ./cmd/worker   # daemons
+go test ./...         # unit tests
 ```
 
 ## Docs

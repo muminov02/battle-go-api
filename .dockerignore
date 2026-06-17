@@ -1,0 +1,7 @@
+.git
+bin/
+logs/
+run/
+.env
+*.pem
+docs/

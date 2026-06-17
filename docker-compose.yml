@@ -1,0 +1,51 @@
+# One command: `docker compose up -d --build`  (or `make go-docker/up`)
+# Brings up PostgreSQL (Go's own DB) + api + worker. MySQL is your EXISTING DB —
+# set MYSQL_DSN in .env to reach it (from a container, the host is host.docker.internal).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: battle
+      POSTGRES_PASSWORD: battle
+      POSTGRES_DB: battle_go
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U battle -d battle_go"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: .
+    command: ["/app/api"]
+    env_file: .env
+    environment:
+      # override PG to point at the compose service (ignores .env PG_DSN)
+      PG_DSN: postgres://battle:battle@postgres:5432/battle_go?sslmode=disable
+      TZ: Asia/Tashkent
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # so MYSQL_DSN can use host.docker.internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["/app/worker"]
+    env_file: .env
+    environment:
+      PG_DSN: postgres://battle:battle@postgres:5432/battle_go?sslmode=disable
+      TZ: Asia/Tashkent
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
