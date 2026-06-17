@@ -12,7 +12,6 @@ Go rewrite of the Battle module — a competitive quiz where students battle eac
 ```
 cmd/api        HTTP service (Gin)         :8080
 cmd/worker     background daemons (kick / idle / end-battle)
-cmd/tokengen   dev helper: mint go-api JWTs
 internal/      auth, battle logic, db (postgres/mysql), service, realtime, handler, models, config
 deploy/        systemd units + nginx config
 docs/          ADR.md, openapi.yaml, BATTLE_API.md, BATTLE_PRESENTATION.md
