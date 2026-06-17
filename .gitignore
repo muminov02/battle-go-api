@@ -1,0 +1,7 @@
+# secrets & local config
+.env
+*.pem
+# build output
+/bin/
+# logs
+*.log

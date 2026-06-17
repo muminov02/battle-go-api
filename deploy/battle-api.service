@@ -1,0 +1,20 @@
+[Unit]
+Description=Battle Go API (HTTP)
+After=network.target postgresql.service mysql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=umid
+WorkingDirectory=/var/www/battle-go-api/go-api
+ExecStart=/var/www/battle-go-api/go-api/bin/api
+# Config is read from ./.env by the app (godotenv). GIN_MODE set here for release logging.
+Environment=GIN_MODE=release
+Restart=always
+RestartSec=3
+# Logs go to journald: journalctl -u battle-api -f
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

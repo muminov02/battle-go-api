@@ -1,0 +1,19 @@
+[Unit]
+Description=Battle Go Worker (kick / end / idle daemons)
+After=network.target postgresql.service mysql.service battle-api.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=umid
+WorkingDirectory=/var/www/battle-go-api/go-api
+ExecStart=/var/www/battle-go-api/go-api/bin/worker
+# Config is read from ./.env by the app (godotenv).
+Environment=GIN_MODE=release
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

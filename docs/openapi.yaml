@@ -1,0 +1,487 @@
+openapi: 3.0.3
+info:
+  title: Battle API
+  version: "1.0.0"
+  description: |
+    Realtime competitive quiz. Students battle each other (P2P / GROUP) or a scripted AI.
+
+    **Two hosts:**
+    - **Auth API** (`https://v2-api-erp.englifyschool.com`) — login + issuing the battle JWT (PHP).
+    - **Battle service** (`https://v2-backend-erp.englifyschool.com`) — the Go game endpoints under `/v2/battle`.
+
+    **Auth flow:** `login` (with `api-token` header) → `get-jwt` (with the user token) → use the
+    returned **go-api JWT** as `Authorization: Bearer` for all `/v2/battle/*` calls.
+
+    **Envelope:** every response is wrapped: success → `{ok,status_code,description,result}`,
+    validation error → `{ok,status_code,description,errors}`, other error → `{ok,status_code,description}`.
+
+    Realtime (Ably or WebSocket) is **not** in this spec — see `BATTLE_API.md` / `ADR.md`.
+
+servers:
+  - url: https://v2-backend-erp.englifyschool.com
+    description: Battle service (Go) — /v2/battle/*
+  - url: https://v2-api-erp.englifyschool.com
+    description: Auth API (PHP) — login + get-jwt
+
+tags:
+  - name: Auth
+    description: Login and battle-JWT issuance (PHP API host)
+  - name: Battle
+    description: Battle gameplay (Go service host)
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: go-api JWT (battle endpoints) or the user access token (get-jwt).
+    ApiToken:
+      type: apiKey
+      in: header
+      name: api-token
+      description: App-level API token required by the PHP API gate (e.g. `local` on test).
+
+  schemas:
+    Envelope:
+      type: object
+      description: Standard response wrapper.
+      properties:
+        ok: { type: boolean, example: true }
+        status_code: { type: integer, example: 200 }
+        description: { type: string, example: Success }
+      required: [ok, status_code, description]
+
+    Error:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            errors:
+              description: Present on 422 — validation errors.
+              oneOf:
+                - type: object
+                - type: array
+                  items: { type: object }
+
+    LoginRequest:
+      type: object
+      required: [identity, password]
+      properties:
+        identity: { type: string, description: Phone number, e.g. 998922222222, example: "998922222222" }
+        password: { type: string, example: "30.08.2007" }
+
+    LoginResult:
+      type: object
+      properties:
+        token: { type: string, description: User access token (use as Bearer for get-jwt). }
+        expire_at: { type: string, example: "2027-06-12 16:12:08" }
+        profile:
+          type: object
+          properties:
+            username: { type: string }
+            firstname: { type: string }
+            lastname: { type: string }
+            user_id: { type: integer, example: 26 }
+        user_uuid: { type: string }
+        level: { type: string, example: "Beginner 3" }
+
+    TokenResult:
+      type: object
+      properties:
+        token: { type: string, description: The go-api JWT (RS256). Use as Bearer for /v2/battle/*. }
+
+    FindRequest:
+      type: object
+      required: [type, lobby_type]
+      properties:
+        type:
+          type: integer
+          description: "Battle type: 100=P2P (2), 200=GROUP (4), 300=AI (1 + bot)."
+          enum: [100, 200, 300]
+          example: 100
+        lobby_type:
+          type: integer
+          description: "Question category: 100=GRAMMAR, 200=VOCABULARY."
+          enum: [100, 200]
+          example: 200
+
+    BattleIdRequest:
+      type: object
+      required: [battle_id]
+      properties:
+        battle_id: { type: string, format: uuid, description: Battle UUID from find/confirm. }
+
+    AnswerRequest:
+      type: object
+      required: [battle_id, question_id, values, answer_time]
+      properties:
+        battle_id: { type: string, format: uuid }
+        question_id: { type: integer, example: 273 }
+        values:
+          type: array
+          items: { type: string }
+          description: Chosen alternative's value (text). Correctness matched case-insensitively.
+          example: ["man"]
+        answer_time:
+          type: integer
+          description: Milliseconds the student took (drives the time tie-break).
+          example: 4200
+
+    Level:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, example: "Beginner 2" }
+        order: { type: integer }
+        level_group: { type: integer }
+        parent_id: { type: integer, nullable: true }
+        status: { type: integer }
+        course_id: { type: integer }
+        image_url: { type: string, nullable: true }
+
+    Theme:
+      type: object
+      properties:
+        type: { type: integer }
+        url: { type: string }
+
+    Student:
+      type: object
+      description: Public profile (PHP parity). No student_id is exposed.
+      properties:
+        full_name: { type: string, example: "Umid Muminov" }
+        avatar: { type: string, nullable: true, description: Avatar URL or gender default. }
+        level: { $ref: '#/components/schemas/Level' }
+        point: { type: integer }
+        themes:
+          type: array
+          items: { $ref: '#/components/schemas/Theme' }
+
+    Member:
+      type: object
+      properties:
+        place: { type: integer, nullable: true, description: Final placement (null until finished). }
+        points: { type: integer, nullable: true, description: Reward points (null until finished). }
+        answers:
+          type: string
+          nullable: true
+          description: |
+            Raw JSON **string** (null until answered). Parse it. Each entry:
+            `{question_id, question, values, time, is_correct, points, correct_answer, correct_answers}`.
+          example: '[{"question_id":273,"question":"erkak kishi","values":["man"],"time":4200,"is_correct":true,"points":500,"correct_answer":"man","correct_answers":["man"]}]'
+        student: { $ref: '#/components/schemas/Student' }
+
+    Realtime:
+      type: object
+      description: Which realtime transport is active + how to connect.
+      properties:
+        driver: { type: string, enum: [ably, ws], example: ably }
+        url:
+          type: string
+          nullable: true
+          description: WS connect URL (ws driver); null for ably (use the SDK with `token`).
+
+    BattleModel:
+      type: object
+      properties:
+        uuid: { type: string, format: uuid }
+        status:
+          type: integer
+          description: "100=WAITING, 400=ON_QUEUE, 200=ON_GOING, 300=FINISHED."
+          enum: [100, 400, 200, 300]
+        token: { type: string, description: Ably subscribe token (empty for ws driver). }
+        realtime: { $ref: '#/components/schemas/Realtime' }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/Member' }
+
+    Alternative:
+      type: object
+      properties:
+        id: { type: integer }
+        type: { type: integer, description: "200=ANSWER (correct), 100=OPTION (distractor)." }
+        value: { type: string }
+
+    QuestionOption:
+      type: object
+      properties:
+        order: { type: integer }
+        alternatives:
+          type: array
+          items: { $ref: '#/components/schemas/Alternative' }
+
+    Question:
+      type: object
+      properties:
+        id: { type: integer }
+        value: { type: string, description: The prompt shown to the student. }
+        label: { type: string, description: Instruction text. }
+        order: { type: integer }
+        no_value: { type: boolean }
+        config: { nullable: true }
+        options:
+          type: array
+          items: { $ref: '#/components/schemas/QuestionOption' }
+
+paths:
+  /student/v1/auth/login:
+    servers:
+      - url: https://v2-api-erp.englifyschool.com
+    post:
+      tags: [Auth]
+      summary: Log in a student
+      description: Returns the user access token. Requires the `api-token` header.
+      security:
+        - ApiToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      result: { $ref: '#/components/schemas/LoginResult' }
+        '422':
+          description: Wrong login or password
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /student/v1/battle/get-jwt:
+    servers:
+      - url: https://v2-api-erp.englifyschool.com
+    post:
+      tags: [Auth]
+      summary: Issue a go-api JWT for the logged-in student
+      description: "Requires `api-token` header AND `Authorization: Bearer <user access token>` from login."
+      security:
+        - ApiToken: []
+          BearerAuth: []
+      responses:
+        '200':
+          description: go-api JWT
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      result: { $ref: '#/components/schemas/TokenResult' }
+        '401':
+          description: Missing/invalid auth
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v2/battle/find:
+    post:
+      tags: [Battle]
+      summary: Find or create a battle lobby
+      description: |
+        Joins an open lobby of the same type/level-group or creates one. When the lobby fills,
+        status becomes ON_QUEUE (confirm within 20s). AI battles start immediately.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FindRequest' }
+      responses:
+        '200':
+          description: Battle model
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      result:
+                        type: object
+                        properties:
+                          message: { type: string, nullable: true, example: "Please wait other members to join" }
+                          model: { $ref: '#/components/schemas/BattleModel' }
+        '422': { description: No level / demo limit / bad fields, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Student not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /v2/battle/confirm:
+    post:
+      tags: [Battle]
+      summary: Confirm attendance
+      description: Confirms the student. When all members confirm, the battle starts (status 200).
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BattleIdRequest' }
+      responses:
+        '200':
+          description: Battle model
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      result:
+                        type: object
+                        properties:
+                          message: { type: string, nullable: true }
+                          model: { $ref: '#/components/schemas/BattleModel' }
+        '404': { description: Battle not found (expired), content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '403': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /v2/battle/{uuid}/questions:
+    get:
+      tags: [Battle]
+      summary: Get the battle's questions
+      description: Fetch once status is ON_GOING (200). Members only. All members get the same set.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Questions
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      result:
+                        type: object
+                        properties:
+                          uuid: { type: string }
+                          status: { type: integer }
+                          questions:
+                            type: array
+                            items: { $ref: '#/components/schemas/Question' }
+        '403': { description: Not a member, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /v2/battle/answer:
+    post:
+      tags: [Battle]
+      summary: Submit one answer
+      description: Idempotent — a repeated question_id is ignored. Send answer_time in ms.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AnswerRequest' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      result:
+                        type: object
+                        properties:
+                          status: { type: boolean, example: true }
+                          message: { type: string, example: Success }
+        '422': { description: Battle not started/finished, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /v2/battle/leave:
+    post:
+      tags: [Battle]
+      summary: Leave a battle
+      description: WAITING/ON_QUEUE → removed. ON_GOING (confirmed) → remaining questions blank-filled.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BattleIdRequest' }
+      responses:
+        '200':
+          description: Left
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      result:
+                        type: object
+                        properties:
+                          message: { type: string, example: "You have left battle" }
+
+  /v2/battle/change-type:
+    post:
+      tags: [Battle]
+      summary: Convert a waiting P2P lobby to AI
+      description: Adds a bot and starts immediately if the lobby isn't full.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BattleIdRequest' }
+      responses:
+        '200':
+          description: Battle model
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      result:
+                        type: object
+                        properties:
+                          message: { type: string }
+                          model: { $ref: '#/components/schemas/BattleModel' }
+
+  /v2/battle/{uuid}:
+    get:
+      tags: [Battle]
+      summary: View a battle
+      description: Full snapshot — status, members (with results when FINISHED), token, realtime.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Battle model
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      result: { $ref: '#/components/schemas/BattleModel' }
+        '404': { description: Not found, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
