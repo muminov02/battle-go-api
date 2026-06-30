@@ -42,7 +42,7 @@ func Load() (*App, error) {
 	mysqlDSN = appendDSNParam(mysqlDSN, "loc", "Local")
 
 	port := env("PORT", "8080")
-	driver := env("REALTIME_DRIVER", "ably")
+	driver := env("REALTIME_DRIVER", "ws")
 
 	cfg := &App{
 		Port:           port,

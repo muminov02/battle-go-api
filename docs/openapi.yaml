@@ -15,7 +15,9 @@ info:
     **Envelope:** every response is wrapped: success → `{ok,status_code,description,result}`,
     validation error → `{ok,status_code,description,errors}`, other error → `{ok,status_code,description}`.
 
-    Realtime (Ably or WebSocket) is **not** in this spec — see `BATTLE_API.md` / `ADR.md`.
+    Realtime is **WebSocket** (default `REALTIME_DRIVER=ws`); the active transport + connect
+    URL are returned in each battle model's `realtime` field. The WS protocol itself isn't
+    expressible in OpenAPI — see `BATTLE_API.md` §5 for frames/events (Ably is a switchable fallback).
 
 servers:
   - url: https://v2-backend-erp.englifyschool.com
@@ -176,11 +178,14 @@ components:
       type: object
       description: Which realtime transport is active + how to connect.
       properties:
-        driver: { type: string, enum: [ably, ws], example: ably }
+        driver: { type: string, enum: [ws, ably], example: ws }
         url:
           type: string
           nullable: true
-          description: WS connect URL (ws driver); null for ably (use the SDK with `token`).
+          description: |
+            WS connect URL (ws driver) — append `&token=<go-api jwt>` and open it.
+            null for ably (use the Ably SDK with `token`).
+          example: "wss://v2-backend-erp.englifyschool.com/v2/battle/ws?battle=a6aee3be-…"
 
     BattleModel:
       type: object

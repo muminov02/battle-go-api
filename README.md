@@ -5,7 +5,7 @@ Go rewrite of the Battle module — a competitive quiz where students battle eac
 
 - **PostgreSQL** holds active battle state during play.
 - **MySQL** (existing app DB) is read for questions/students and written for final results.
-- **Realtime** is pluggable: **Ably** or native **WebSocket** (`REALTIME_DRIVER`).
+- **Realtime** is pluggable: native **WebSocket** (default) or **Ably** (`REALTIME_DRIVER=ws|ably`).
 - Auth: RS256 JWT issued by the PHP app (`get-jwt`), validated here.
 
 ## Layout
