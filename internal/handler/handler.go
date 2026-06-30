@@ -313,10 +313,12 @@ func (h *Handler) battleJSON(ctx context.Context, b *models.Battle, members []*m
 			student = p
 		}
 		mems[i] = gin.H{
-			"place":   m.Place,
-			"points":  m.Points,
-			"student": student,
-			"answers": answers,
+			"place":      m.Place,
+			"points":     m.Points,
+			"student":    student,
+			"answers":    answers,
+			"student_id": m.StudentID,
+			"status":     m.Status,
 		}
 	}
 	return gin.H{

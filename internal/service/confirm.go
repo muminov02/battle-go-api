@@ -105,5 +105,19 @@ func (s *ConfirmService) startConfirmedBattle(ctx context.Context, b *models.Bat
 	// Publish battle + all members
 	_ = s.realtime.PublishBattleWithMembers(ctx, b, mems)
 
+	// Fill AI member answers (a P2P battle converted to AI starts here, not in
+	// find.startAIBattle, so the bot would otherwise never answer). Mirrors
+	// FindService.startAIBattle. No-op for GROUP/P2P battles with no AI member.
+	for _, m := range mems {
+		if m.Type != models.MemberTypeAI {
+			continue
+		}
+		fillAIAnswers(b, m)
+		if err := s.members.Save(ctx, m); err != nil {
+			return nil, fmt.Errorf("confirm: save ai member: %w", err)
+		}
+		_ = s.realtime.PublishMember(ctx, b.UUID, m)
+	}
+
 	return &ConfirmResult{Battle: b, Members: mems}, nil
 }

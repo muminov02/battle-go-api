@@ -109,6 +109,33 @@ func TestConfirm_AllConfirmed_UsesTemplate(t *testing.T) {
 	assert.Equal(t, []models.Question{makeGrammarQuestion(10), makeGrammarQuestion(11)}, res.Battle.Questions)
 }
 
+// REGRESSION: a P2P battle converted to AI is started by Confirm (not
+// find.startAIBattle), so Confirm must fill the AI opponent's answers — otherwise
+// the bot never "plays" and shows no progress/results.
+func TestConfirm_ConvertedAIBattle_FillsAIAnswers(t *testing.T) {
+	battles, members, qr, _, _, s := setupConfirm()
+
+	b := &models.Battle{UUID: "ai-uuid", Type: models.BattleTypeAI, LobbyType: models.LobbyTypeGrammar, Status: models.BattleStatusOnQueue, LevelID: 5, LevelGroupID: 2}
+	require.NoError(t, battles.Create(context.Background(), b))
+	human := &models.BattleMember{BattleID: b.ID, StudentID: 1, Type: models.MemberTypeCreator, Status: models.MemberStatusNotConfirmed, CurrentQuestion: 1}
+	ai := &models.BattleMember{BattleID: b.ID, StudentID: 2, Type: models.MemberTypeAI, Status: models.MemberStatusConfirmed, CurrentQuestion: 1}
+	require.NoError(t, members.Create(context.Background(), human))
+	require.NoError(t, members.Create(context.Background(), ai))
+
+	qr.SetGrammarQuestions(5, []models.Question{makeGrammarQuestion(1), makeGrammarQuestion(2), makeGrammarQuestion(3)})
+
+	// Human confirms — AI already confirmed → battle starts.
+	res, err := s.Execute(context.Background(), 1, "ai-uuid")
+	require.NoError(t, err)
+	assert.Equal(t, models.BattleStatusOnGoing, res.Battle.Status)
+
+	// The AI member must now have answers (one per question) and be finished.
+	aiAfter, err := members.FindByBattleAndStudent(context.Background(), b.ID, 2)
+	require.NoError(t, err)
+	assert.Len(t, aiAfter.Answers, 3, "AI opponent should have an answer per question")
+	assert.True(t, aiAfter.IsFinished, "AI opponent should be marked finished")
+}
+
 func TestConfirm_MemberStatusUpdated(t *testing.T) {
 	battles, members, _, _, rt, s := setupConfirm()
 	seedP2PBattle(t, battles, members, 5, 2)
