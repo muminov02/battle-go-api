@@ -178,5 +178,7 @@ type ThemeInfo struct {
 	URL  string `json:"url"`
 }
 
-// StudentStatusDemo values — demo students have battle limits
-var StudentStatusDemoValues = []int{200, 300}
+// StudentStatusDemo values — demo students have battle limits.
+// Must mirror PHP StudentStatusEnum::DEMO_VALUES = [DEMO=100, ARCHIVE=500].
+// (200=SELF_STUDY and 300=GROUPED are real active students and must NOT be limited.)
+var StudentStatusDemoValues = []int{100, 500}

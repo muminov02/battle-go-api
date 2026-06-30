@@ -72,7 +72,7 @@ func TestFind_StudentNoLevel(t *testing.T) {
 
 func TestFind_DemoLimitExceeded(t *testing.T) {
 	_, _, st, _, _, _, s := setupFind()
-	st.AddStudent(newStudent(1, 1, 1, 1, 200)) // demo status
+	st.AddStudent(newStudent(1, 1, 1, 1, 100)) // demo status (DEMO=100)
 	st.SetFinishedBattleCount(1, 5)            // at limit
 	_, err := s.Execute(context.Background(), 1, models.BattleTypeP2P, models.LobbyTypeGrammar)
 	require.ErrorIs(t, err, svc.ErrDemoLimitExceeded)
@@ -80,11 +80,25 @@ func TestFind_DemoLimitExceeded(t *testing.T) {
 
 func TestFind_DemoNotLimited(t *testing.T) {
 	b, _, st, _, _, _, s := setupFind()
-	st.AddStudent(newStudent(1, 1, 1, 1, 200)) // demo
+	st.AddStudent(newStudent(1, 1, 1, 1, 100)) // demo (DEMO=100)
 	st.SetFinishedBattleCount(1, 4)            // under limit (default=5)
 	_, err := s.Execute(context.Background(), 1, models.BattleTypeP2P, models.LobbyTypeGrammar)
 	require.NoError(t, err)
 	require.Len(t, b.All(), 1)
+}
+
+// REGRESSION: real students (SELF_STUDY=200, GROUPED=300) are NOT demo and must
+// never hit the demo limit, even when over the daily finished count. (Bug: the Go
+// port had StudentStatusDemoValues={200,300}, inverting PHP DEMO_VALUES={100,500}.)
+func TestFind_RealStudentNotDemoLimited(t *testing.T) {
+	for _, status := range []int{200, 300} {
+		b, _, st, _, _, _, s := setupFind()
+		st.AddStudent(newStudent(1, 5, 2, 3, status))
+		st.SetFinishedBattleCount(1, 99) // way over the demo limit
+		_, err := s.Execute(context.Background(), 1, models.BattleTypeP2P, models.LobbyTypeGrammar)
+		require.NoError(t, err, "status %d is a real student, not demo", status)
+		require.Len(t, b.All(), 1)
+	}
 }
 
 func TestFind_CreateNewP2PBattle(t *testing.T) {
